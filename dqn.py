@@ -190,6 +190,9 @@ class DQNAlgo:
             if self.i_frames % self.target_network_update_frequency == 0:
                 self._update_network_stale()
 
+        if self.i_frames % 10000 == 100:
+            print("Processed frames: ", self.i_frames)
+
         if self.i_frames % self.save_every_n_frames == 100:  # 30 processed frames / s
             filename = 'weights_' + str(self.i_frames) + '.npz'
             print("File saved: ", filename)

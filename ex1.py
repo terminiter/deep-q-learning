@@ -42,12 +42,12 @@ def dqn_on_space_invaders(visualize=False, theano_verbose=False, initial_weights
         game.lives = 4
         return game
 
-    replay_memory = dqn.ReplayMemory(size=100, grace=10)
+    replay_memory = dqn.ReplayMemory()
     dqn_algo = dqn.DQNAlgo(game.n_actions(), replay_memory=replay_memory, initial_weights_file=initial_weights_file)
 
-    dqn_algo.target_network_update_frequency = 50
-    dqn_algo.replay_memory_size = 100
-    dqn_algo.replay_start_size = 75
+    #dqn_algo.target_network_update_frequency = 50
+    #dqn_algo.replay_memory_size = 100
+    #dqn_algo.replay_start_size = 75
     dqn_algo.epsilon = 0.1
     #dqn_algo.ignore_feedback = True
 
