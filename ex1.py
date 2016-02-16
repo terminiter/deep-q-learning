@@ -79,11 +79,10 @@ def dqn_on_space_invaders(visualize=False, theano_verbose=False, initial_weights
         game.lives = 4
         return game
 
-    dqn_algo = dqn.DQNAlgo(game.n_actions(), initial_weights_file=initial_weights_file)
+    dqn_algo = dqn.DQNAlgo(game.n_actions(), replay_memory=dqn.ReplayMemory(size=100, grace=50), initial_weights_file=initial_weights_file)
 
-    #dqn_algo.target_network_update_frequency = 50
-    #dqn_algo.replay_memory_size = 100
-    #dqn_algo.replay_start_size = 75
+    dqn_algo.target_network_update_frequency = 50
+    dqn_algo.replay_start_size = 75
     dqn_algo.epsilon = 0.1
     #dqn_algo.ignore_feedback = True
 
@@ -220,7 +219,4 @@ def random_on_mountain_car_game():
 
     teacher.teach(1)
 
-
-#dqn_on_space_invaders(visualize=True)
-
-dqn_on_space_invaders(visualize=False)
+dqn_on_space_invaders(visualize=False, theano_verbose=True, initial_weights_file=None)

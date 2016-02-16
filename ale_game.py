@@ -69,23 +69,24 @@ def init(pygame_on=False):
 
 
 class Phi(object):
-    def __init__(self, skip_every):
-        self.prev_cropped = np.zeros((80, 80), dtype=np.int8)
-        self.prev_frames = [np.zeros((80, 80), dtype=np.int8), np.zeros((80, 80), dtype=np.int8), np.zeros((80, 80), dtype=np.int8), np.zeros((80, 80), dtype=np.int8)]
+    def __init__(self, skip_every, dtype=np.float32):
+        self.prev_cropped = np.zeros((80, 80), dtype=dtype)
+        self.prev_frames = [np.zeros((80, 80), dtype=dtype), np.zeros((80, 80), dtype=dtype), np.zeros((80, 80), dtype=dtype), np.zeros((80, 80), dtype=dtype)]
         self.frame_count = -1
         self.skip_every = skip_every
+        self.dtype = dtype
 
     def __call__(self, state):
         self.frame_count += 1
 
-        cropped = measure.block_reduce((np.reshape(state.astype(np.int8), (210, 160))[35:-15, :]), (2, 2), func=np.max)
+        cropped = measure.block_reduce((np.reshape(state.astype(self.dtype), (210, 160))[35:-15, :]), (2, 2), func=np.max)
 
         if self.frame_count % self.skip_every == self.skip_every - 1:
             frame = np.maximum(cropped, self.prev_cropped)
             self.prev_frames.append(frame)
             self.prev_frames = self.prev_frames[1:]
             self.prev_cropped = cropped
-            return tuple(self.prev_frames) # deepcopy would be slower
+            return tuple(self.prev_frames)  # deepcopy would be slower
         else:
             self.prev_cropped = cropped
             return tuple(self.prev_frames)

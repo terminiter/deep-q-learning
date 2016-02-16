@@ -171,9 +171,41 @@ def main(num_epochs=500):
     # lasagne.layers.set_all_param_values(network, param_values)
 
 
+class ReplayMemory(object):
+    def __init__(self, size=1000000, grace=10000):
+        self.max_size = size
+        self.grace = grace
+        self.list = []
+
+    def init_state(self, s0):
+        if len(self.list) > 0:
+            self.list[-1] = s0
+        else:
+            self.list.append(s0)
+
+    def append(self, a0, r0, fri, s1):
+        el = [a0, r0, fri, s1]
+
+        self.list.extend(el)
+        if len(self) > self.max_size + self.grace * 4:
+            self.list = self.list[:self.grace * 4]
+
+    def sample(self, sample_size):
+        import random
+        indices = random.sample(xrange(len(self)), sample_size)
+        return [self[i] for i in indices]
+
+    def __len__(self):
+        return int((len(self.list) - 1) / 4)
+
+    def __getitem__(self, idx):
+        return tuple(self.list[idx*4:idx*4+5])
+
+
 class DQNAlgo:
-    def __init__(self, n_actions, initial_weights_file=None):
+    def __init__(self, n_actions, replay_memory, weights_prefix=None, initial_weights_file=None):
         self.ignore_feedback = False
+        self.weights_prefix = weights_prefix
         self.alpha = 0.00025
         # update frequency ?
         # gradient momentum ? 0.95
@@ -190,10 +222,10 @@ class DQNAlgo:
         self.final_epsilon = 0.1
         self.epsilon = self.initial_epsilon
         self.gamma = 0.99
-        self.replay_memory = []
+        self.replay_memory = replay_memory
 
         self.minibatch_size = 32
-        self.replay_memory_size = 1000000
+        #self.replay_memory_size = 1000000
 
         self.target_network_update_frequency = 10000
 
@@ -212,28 +244,36 @@ class DQNAlgo:
         self.forward_stale = theano.function([s1_var],
                                              lasagne.layers.get_output(self.network_stale, deterministic=True))
 
+        #self.params_fn = theano.function([], lasagne.layers.get_all_param_values(self.network))
+
         if initial_weights_file is not None:
             with np.load(initial_weights_file) as initial_weights:
                 param_values = [initial_weights['arr_%d' % i] for i in range(len(initial_weights.files))]
                 lasagne.layers.set_all_param_values(self.network, param_values)
 
-        self._update_network_stale()
+        #self._update_network_stale()
 
-        self.loss = build_loss(self.network, self.network_stale,
-                               (s0_var, a0_var, r0_var, s1_var, future_reward_indicator_var), self.gamma)
+        self.loss, __y, __q = build_loss(self.network, self.network_stale,
+                               (s0_var, a0_var, r0_var, future_reward_indicator_var, s1_var), self.gamma)
 
         params = lasagne.layers.get_all_params(self.network, trainable=True)
         updates = lasagne.updates.rmsprop(self.loss, params, learning_rate=1.0, rho=0.95,
                                           epsilon=1e-6)  # TODO RMSPROP in the paper has slightly different definition (see Lua)
         print("Compiling train_fn.")
         self.train_fn = theano.function([s0_var, a0_var, r0_var, s1_var, future_reward_indicator_var],
-                                        self.loss, updates=updates)
+                                        outputs=[self.loss, __y, __q] + list(updates), updates=updates,  mode='DebugMode')
+
+        from theano.printing import pydotprint
+        pydotprint(self.loss, 'train_fn.png')
+        #theano.printing.pp(self.loss)
+
         print("Compiling loss_fn.")
         self.loss_fn = theano.function([s0_var, a0_var, r0_var, s1_var, future_reward_indicator_var],
                                         self.loss)
 
     def init_state(self, state):
         self.state = self._prep_state(state)
+        self.replay_memory.init_state(self.state)
 
     def _update_network_stale(self):
         lasagne.layers.set_all_param_values(self.network_stale, lasagne.layers.get_all_param_values(self.network))
@@ -261,29 +301,31 @@ class DQNAlgo:
         return np.argmax(q)
 
     def feedback(self, exp):
+        import math
         # exp -> s0 a0 r0 s1 game_over
         self.i_frames += 1
         if self.ignore_feedback:
             return
 
-        self.replay_memory.append((self._prep_state(exp.s0), self.a_lookup[exp.a0], exp.r0, self._prep_state(exp.s1), 1-int(exp.game_over)))
-        if len(self.replay_memory) > self.replay_memory_size + 10000:
-            self.replay_memory = self.replay_memory[10000:]
+        self.replay_memory.append(self.a_lookup[exp.a0], np.min(1, np.max(-1, exp.r0)), 1-int(exp.game_over), self._prep_state(exp.s1))
+
         import random
 
         if len(self.replay_memory) > self.replay_start_size:
-            sample = zip(*random.sample(self.replay_memory, self.minibatch_size))
+            sample = zip(*self.replay_memory.sample(self.minibatch_size))
             s0 = np.array(sample[0], dtype=theano.config.floatX).reshape(self.minibatch_size, 4, 80, 80)
+            print("----------------------------", s0[0][0])
 
             a0 = np.array(sample[1], dtype=np.int8).reshape(self.minibatch_size, self.n_actions)
 
             r0 = np.array(sample[2], dtype=np.int16).reshape(self.minibatch_size, 1)
 
-            s1 = np.array(sample[3], dtype=theano.config.floatX).reshape(self.minibatch_size, 4, 80, 80)
+            future_reward_indicators = np.array(sample[3], dtype=np.int8).reshape(self.minibatch_size, 1)
 
-            future_reward_indicators = np.array(sample[4], dtype=np.int8).reshape(self.minibatch_size, 1)
+            s1 = np.array(sample[4], dtype=theano.config.floatX).reshape(self.minibatch_size, 4, 80, 80)
 
-            self.train_fn(s0, a0, r0, s1, future_reward_indicators)
+            t = self.train_fn(s0, a0, r0, s1, future_reward_indicators)
+            print('loss: ', t)
 
             if self.i_frames % self.target_network_update_frequency == 0:
                 self._update_network_stale()
@@ -296,7 +338,10 @@ class DQNAlgo:
 
 
 def build_loss(network, network_stale, exp_var, gamma):
-    s0_var, a0_var, r0_var, s1_var, future_reward_indicator_var = exp_var
+    from theano import printing
+    s0_var, a0_var, r0_var, future_reward_indicator_var, s1_var = exp_var
+    #s0_var = printing.Print('s0_var')(s0_var)
+
     # s0_var mini_batch x 4 x,80 x 80
     # a0_var mini_batch x 1,
     # r0_var mini_batch x 1,
@@ -308,9 +353,12 @@ def build_loss(network, network_stale, exp_var, gamma):
     qs = lasagne.layers.get_output(network_stale, deterministic=True)  # 32 x 6
     qs.tag.test_value = np.random.rand(32, 6).astype(dtype=theano.config.floatX)
     y = r0_var + gamma * future_reward_indicator_var * T.max(qs, axis=1)  # 32 x 1
+    #y = r0_var + gamma * future_reward_indicator_var * qs[:,0]  # 32 x 1
 
     out = lasagne.layers.get_output(network, deterministic=True)  # 32 x 6
     out.tag.test_value = np.random.rand(1, 6).astype(dtype=theano.config.floatX)
     q = T.sum(T.dot(a0_var, T.transpose(out)), axis=1)  # 32 x 1
-    loss = (y - q) ** 2
-    return loss.mean()  # TODO or sum? -> alpha depends on that.
+    err = y - q
+    #err = T.min(T.ones_like(err), T.max(T.neg(T.ones_like(err)), err))
+    loss = err ** 2
+    return loss.mean(), s0_var, out  # TODO or sum? -> alpha depends on that.
