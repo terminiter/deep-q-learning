@@ -95,7 +95,7 @@ class Teacher:
         else:
             print "Failure."
 
-        print "Game reward: " + game.cum_reward
+        print "Game reward: " + str(game.cum_reward)
 
         self.game_visualizer.next_game()
 
