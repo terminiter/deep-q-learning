@@ -32,9 +32,8 @@ class MyTestCase(unittest.TestCase):
                                            [1, 4, 3, 4, 5, 9]]),
                                  np.array([[-5, 1, 2, 3, 4, 5],
                                            [1, 2, 3, 4, 5, 6]]))
-
         self.assertTrue(np.all(y == [[3.5], [3]]))
         self.assertTrue(np.all(q == [[-5], [4]]))
-        self.assertTrue(sqr_mean == 36.625)
+        self.assertTrue(sqr_mean == 1)
         self.assertTrue(mean == 3.75)
 

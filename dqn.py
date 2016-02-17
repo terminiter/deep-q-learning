@@ -229,5 +229,6 @@ def build_loss(out, out_stale, a0_var, r0_var, future_reward_indicator_var, gamm
 
     q = T.sum(a0_var * out, axis=1, keepdims=True)  # 32 x 1
     err = y - q
+    err = T.max(T.stack(T.neg(T.ones_like(err)), T.min(T.stack(T.ones_like(err), err), axis=0)), axis=0) # cap with -1 and 1 elementwise
     loss = err ** 2
     return loss.mean(), (y - q).mean(), y, q
