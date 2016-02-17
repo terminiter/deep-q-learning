@@ -42,7 +42,7 @@ def dqn_on_space_invaders(visualize=False, theano_verbose=False, initial_weights
         game.lives = 4
         return game
 
-    replay_memory = dqn.ReplayMemory()
+    replay_memory = dqn.ReplayMemory(size=500000)
     dqn_algo = dqn.DQNAlgo(game.n_actions(), replay_memory=replay_memory, initial_weights_file=initial_weights_file)
 
     #dqn_algo.target_network_update_frequency = 50
@@ -54,7 +54,7 @@ def dqn_on_space_invaders(visualize=False, theano_verbose=False, initial_weights
     visualizer = ag.SpaceInvadersGameCombined2Visualizer() if visualize else q.GameNoVisualizer()
     teacher = q.Teacher(new_game, dqn_algo, visualizer,
                         ag.Phi(skip_every=4), repeat_action=4, sleep_seconds=0)
-    teacher.teach(1000000)
+    teacher.teach(500000)
 
 
 def const_on_space_invaders():
