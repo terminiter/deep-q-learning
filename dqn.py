@@ -10,9 +10,7 @@ import theano.tensor as T
 import lasagne
 
 
-# ################## Download and prepare the MNIST dataset ##################
-# This is just some way of getting the MNIST dataset from an online location
-# and loading it into numpy arrays. It doesn't involve Lasagne at all.
+#lasagne.layers.cuda_convnet.Conv2DCCLayer
 
 
 def build_cnn(n_actions, input_var=None):
@@ -20,24 +18,69 @@ def build_cnn(n_actions, input_var=None):
                                         input_var=input_var)
 
     network = lasagne.layers.Conv2DLayer(
-        network, num_filters=16, filter_size=(8, 8), stride=4,
+        network, num_filters=32, filter_size=(8, 8), stride=4,
         nonlinearity=lasagne.nonlinearities.rectify,
-        W=lasagne.init.GlorotUniform())
+        W=lasagne.init.GlorotUniform(),
+        b=lasagne.init.Constant(.1))
 
     network = lasagne.layers.Conv2DLayer(
-        network, num_filters=32, filter_size=(4, 4), stride=2,
-        nonlinearity=lasagne.nonlinearities.rectify)
+        network, num_filters=64, filter_size=(4, 4), stride=2,
+        nonlinearity=lasagne.nonlinearities.rectify,
+        b=lasagne.init.Constant(.1))
+
+    network = lasagne.layers.Conv2DLayer(
+        network, num_filters=64, filter_size=(3, 3), stride=1,
+        nonlinearity=lasagne.nonlinearities.rectify,
+        b=lasagne.init.Constant(.1))
 
     network = lasagne.layers.DenseLayer(
         network,
-        num_units=256,
-        nonlinearity=lasagne.nonlinearities.rectify)
+        num_units=512,
+        nonlinearity=lasagne.nonlinearities.rectify,
+        b=lasagne.init.Constant(.1))
 
     network = lasagne.layers.DenseLayer(
         network,
-        num_units=n_actions)
+        num_units=n_actions,
+        b=lasagne.init.Constant(.1))
 
     return network
+
+
+class SmartReplayMemory(object):
+    def __init__(self, size=1000000, grace=10000):
+        self.max_size = size
+        self.grace = grace
+        self.s = []
+        self.a = []
+        self.r = []
+        self.fri = []
+
+    def init_state(self, s0):
+        self.s[-1] = s0
+
+    def append(self, a0, r0, fri, s1):
+        self.s.append(a0)
+        self.s.append(r0)
+        self.s.append(fri)
+        self.s.append(s1)
+
+        if len(self) > self.max_size + self.grace:
+            self.s = self.s[self.grace:]
+            self.a = self.a[self.grace:]
+            self.r = self.r[self.grace:]
+            self.fri = self.fri[self.grace:]
+
+    def sample(self, sample_size):
+        import random
+        indices = random.sample(xrange(len(self)), sample_size)
+        return [self[i] for i in indices]
+
+    def __len__(self):
+        return len(self.a)
+
+    def __getitem__(self, idx):
+        return self.s[idx], self.a[idx], self.r[idx], self.fri[idx], self.s[idx + 1]
 
 
 class ReplayMemory(object):
@@ -73,6 +116,7 @@ class ReplayMemory(object):
 
 class DQNAlgo:
     def __init__(self, n_actions, replay_memory, initial_weights_file=None):
+        self.n_parameter_updates = 0
         self.ignore_feedback = False
         self.alpha = 0.00025
         # update frequency ?
@@ -91,6 +135,8 @@ class DQNAlgo:
         self.epsilon = self.initial_epsilon
         self.gamma = 0.99
         self.replay_memory = replay_memory
+
+        self.log_frequency = 50
 
         self.minibatch_size = 32
         # self.replay_memory_size = 1000000
@@ -179,7 +225,7 @@ class DQNAlgo:
         self.replay_memory.append(self.a_lookup[exp.a0], min(1, max(-1, exp.r0)), 1 - int(exp.game_over),
                                   self._prep_state(exp.s1))
 
-        if len(self.replay_memory) > self.replay_start_size:
+        if len(self.replay_memory) > self.replay_start_size and self.i_frames % 4 == 0:
             sample = zip(*self.replay_memory.sample(self.minibatch_size))
 
             s0 = np.array(sample[0], dtype=theano.config.floatX).reshape(self.minibatch_size, 4, 80, 80)
@@ -194,15 +240,17 @@ class DQNAlgo:
 
             t = self.train_fn(s0, a0, r0, s1, future_reward_indicators)
 
-            if self.i_frames % 5000 < 30:
+            self.n_parameter_updates += 1
+
+            if self.i_frames % 5000 < self.log_frequency:
                 print('loss: ', t[0], t[1])
-                print('a0: ', a0)
-            if self.i_frames % 5000 < 5:
-                print('y, q', t[2], t[3])
+
+            if self.i_frames % 5000 < self.log_frequency:
+                print('y, q: ', t[2], t[3])
                 print('out: ', t[4])
                 print('out_stale: ', t[5])
 
-            if self.i_frames % self.target_network_update_frequency == 0:
+            if self.n_parameter_updates % self.target_network_update_frequency == 0:
                 self._update_network_stale()
 
         if self.i_frames % 10000 == 100:
@@ -226,7 +274,6 @@ def build_loss(out, out_stale, a0_var, r0_var, future_reward_indicator_var, gamm
     out_stale.tag.test_value = np.random.rand(32, 6).astype(dtype=theano.config.floatX)
 
     y = r0_var + gamma * future_reward_indicator_var * T.max(out_stale, axis=1, keepdims=True)  # 32 x 1
-
     q = T.sum(a0_var * out, axis=1, keepdims=True)  # 32 x 1
     err = y - q
     err = T.max(T.stack(T.neg(T.ones_like(err)), T.min(T.stack(T.ones_like(err), err), axis=0)), axis=0) # cap with -1 and 1 elementwise

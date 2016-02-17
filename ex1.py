@@ -19,7 +19,7 @@ def random_on_space_invaders():
     teacher.teach(1)
 
 
-def dqn_on_space_invaders(visualize=False, theano_verbose=False, initial_weights_file=None):
+def dqn_on_space_invaders(visualize=False, theano_verbose=False, initial_weights_file=None, ignore_feedback=False):
     import q_learning as q
     import ale_game as ag
     import dqn
@@ -132,7 +132,7 @@ def sarsa_gd_on_space_invaders():
     #  teacher.single_step(Game)
     q_algo1.epsilon = 0.1
     q_algo1.log_freq = 1
-    #vis_teacher.teach(5)
+    # vis_teacher.teach(5)
 
     for i in xrange(90):
         q_algo1.log_freq = 0.03
@@ -184,4 +184,23 @@ def random_on_mountain_car_game():
 
     teacher.teach(1)
 
-dqn_on_space_invaders(visualize=False)
+
+import getopt
+import sys
+
+try:
+    opts = getopt.getopt(sys.argv, "vw:", ["visualize", "weights"])
+except getopt.GetoptError:
+    print("wrong parameters")
+    sys.exit(2)
+#
+# visualize = False
+# initial_weights_file = None
+# for opt, arg in opts:
+#     if opt in ("-v", "--visualize"):
+#         visualize = True
+#     elif opt in ("-w", "--weights"):
+#         initial_weights_file = arg
+
+#dqn_on_space_invaders(visualize=visualize, initial_weights_file=initial_weights_file)
+dqn_on_space_invaders(visualize=False, initial_weights_file=None, ignore_feedback=False)
